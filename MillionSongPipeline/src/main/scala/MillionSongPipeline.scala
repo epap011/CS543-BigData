@@ -1,9 +1,19 @@
 import scala.collection.mutable.ListBuffer
-import org.apache.spark.{SparkConf, SparkContext}
+
+import org.apache.spark.SparkContext
 import org.apache.spark.rdd.RDD
+import org.apache.spark.sql.SparkSession
+
 import org.apache.spark.mllib.linalg.Vectors
 import org.apache.spark.mllib.regression.LabeledPoint
 import org.apache.spark.mllib.evaluation.RegressionMetrics
+
+import org.apache.spark.ml.regression.{LinearRegression, LinearRegressionModel}
+import org.apache.spark.ml.linalg.{Vectors => MLVectors}
+import org.apache.spark.ml.feature.{LabeledPoint => MLabeledPoint}
+import org.apache.spark.ml.evaluation.RegressionEvaluator
+import org.apache.spark.ml.tuning.{CrossValidator, ParamGridBuilder}
+
 import breeze.linalg.DenseVector
 
 object MillionSongPipeline {
@@ -11,13 +21,18 @@ object MillionSongPipeline {
     private val averageYear = -1
 
     def main(args: Array[String]): Unit = {
+        // --------------------------------------------------------- //
+        // ----------------< E X E R C I S E     1 >---------------- //
+        // --------------------------------------------------------- //
         val dataset = getClass.getClassLoader.getResource("dataset.csv")
 
-        val conf = new SparkConf()
-            .setAppName("MillionSongPipeline")
-            .setMaster("local[*]")
+        val spark: SparkSession = SparkSession
+            .builder()
+            .appName("MillionSongPipeline")
+            .master("local[*]")
+            .getOrCreate()
 
-        val sc = new SparkContext(conf)
+        val sc: SparkContext = spark.sparkContext
 
         val baseRdd = sc.textFile(dataset.getPath)
 
@@ -66,6 +81,10 @@ object MillionSongPipeline {
         println("Total number of elements in shiftedPointsRdd: " + totalCountShifted)
         println("Is the sum of counts equal to the count of shiftedPointsRdd? " + (sumCounts == totalCountShifted))
 
+        // --------------------------------------------------------- //
+        // ----------------< E X E R C I S E     2 >---------------- //
+        // --------------------------------------------------------- //
+
         //2.1.1
         val averageYear = trainData.map(_.label).mean()
         println("Average (shifted) song year on the training set: " + averageYear)
@@ -82,7 +101,10 @@ object MillionSongPipeline {
         println("RMSE on validation set: " + calcRmse(predsNLabelsVal))
         println("RMSE on test set: " + calcRmse(predsNLabelsTest))
 
-        //Exercise 3
+        // --------------------------------------------------------- //
+        // ----------------< E X E R C I S E     3 >---------------- //
+        // --------------------------------------------------------- //
+
         //3.3
         //val exampleN = 4
         //val exampleD = 3
@@ -100,6 +122,60 @@ object MillionSongPipeline {
         //        descent does not converge!
         //Note 1: Since the num of iterations is not the case, it suggests that learning step is too large.
         //        So the algorithm overshoots the minimum and diverge. There is a need for different alphas, where a=0.001 seems ok (a=0.01 still overshoots)
+
+
+        // --------------------------------------------------------- //
+        // ----------------< E X E R C I S E     4 >---------------- //
+        // --------------------------------------------------------- //
+
+        // 4.1 - MLlib Linear Regression
+        /*********************RDD conversion to Dataframe*****************/
+        import spark.implicits._
+        val trainDataDF = trainData.map(lp => MLabeledPoint(lp.label, MLVectors.dense(lp.features.toArray))).toDF
+        val valDataDF   = valData.map(lp => MLabeledPoint(lp.label, MLVectors.dense(lp.features.toArray))).toDF
+        val testDataDF  = testData.map(lp => MLabeledPoint(lp.label, MLVectors.dense(lp.features.toArray))).toDF
+
+        /******Linear Regression Demo*********/
+        val lr = new LinearRegression()
+            .setMaxIter(50)
+            .setRegParam(0.1)
+            .setFitIntercept(true)
+
+        val lrModel = lr.fit(trainDataDF)
+        lrModel.evaluate(valDataDF).rootMeanSquaredError
+
+        // 4.1.1
+        println("Coefficients: " + lrModel.coefficients + "\nIntercept: " + lrModel.intercept)
+
+        // 4.1.2
+        val rmse = lrModel.evaluate(valDataDF).rootMeanSquaredError
+        println("RMSE on the validation set: " + rmse)
+
+        // 4.1.3
+        val valPredictions = lrModel.transform(valDataDF)
+        println("First 10 predictions:")
+        val valPredictionsFirst10 = valPredictions.select("prediction").take(10)
+        valPredictionsFirst10.foreach(println)
+
+        // 4.2 - Grid Search
+        val regParams = Array(1e-10, 1e-5, 1)
+
+        val paramGrid = new ParamGridBuilder()
+            .addGrid(lr.regParam, regParams)
+            .build()
+
+        val cv = new CrossValidator()
+            .setEstimator(lr)
+            .setEvaluator(new RegressionEvaluator().setLabelCol("label").setPredictionCol("prediction").setMetricName("rmse"))
+            .setEstimatorParamMaps(paramGrid)
+            .setNumFolds(3)
+
+        val cvModel = cv.fit(trainDataDF)
+        val bestModel = cvModel.bestModel.asInstanceOf[LinearRegressionModel]
+        val rmseBestModel = cvModel.avgMetrics.min
+
+        println("RMSE of the best model: " + rmseBestModel)
+        println("Regularization parameter of the best model: " + bestModel.getRegParam)
     }
 
     //1.3.1
