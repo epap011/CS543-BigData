@@ -15,13 +15,15 @@ import breeze.linalg.DenseVector
 
 object MillionSongPipeline {
 
-    private val averageYear = -1
+    private var averageYear = 0.0
 
     def main(args: Array[String]): Unit = {
         // --------------------------------------------------------- //
         // ----------------< E X E R C I S E     1 >---------------- //
         // --------------------------------------------------------- //
-        val dataset = getClass.getClassLoader.getResource("dataset.csv")
+
+        //val dataset = getClass.getClassLoader.getResource("dataset.csv")
+        val dataset = "/home/epap011/Projects/IdeaProjects/CS543-BigData/MillionSongPipeline/src/main/resources/dataset.csv"
 
         val spark: SparkSession = SparkSession
             .builder()
@@ -31,7 +33,9 @@ object MillionSongPipeline {
 
         val sc: SparkContext = spark.sparkContext
 
-        val baseRdd = sc.textFile(dataset.getPath)
+        sc.setLogLevel("ERROR")
+
+        val baseRdd = sc.textFile(dataset)
 
         val numOfDataPoints = baseRdd.count()
         println("[1.2.1] Number of data points: " + numOfDataPoints) //1.2.1
@@ -41,18 +45,18 @@ object MillionSongPipeline {
 
         val parsedPointsRdd = baseRdd.map(stringToLabeledPoint) //1.3.2
 
-        println("label of the first element of parsedPointsRdd: " + parsedPointsRdd.first().label) //1.3.3
-        println("features of the first element of parsedPointsRdd: " + parsedPointsRdd.first().features) //1.3.4
-        println("length of the features of the first element of parsedPointsRdd: " + parsedPointsRdd.first().features.size) //1.3.5
+        println("[1.3.3] label of the first element of parsedPointsRdd: " + parsedPointsRdd.first().label) //1.3.3
+        println("[1.3.4] features of the first element of parsedPointsRdd: " + parsedPointsRdd.first().features) //1.3.4
+        println("[1.3.5] length of the features of the first element of parsedPointsRdd: " + parsedPointsRdd.first().features.size) //1.3.5
 
         val smallestLabel = parsedPointsRdd.map(_.label).min()
-        println("(parsed data) the smallest label: " + smallestLabel) //1.3.6
+        println("[1.3.6] (parsed data) the smallest label: " + smallestLabel) //1.3.6
         val largestLabel = parsedPointsRdd.map(_.label).max()
-        println("(parsed data) the largest label: " + largestLabel)  //1.3.7
+        println("[1.3.7] (parsed data) the largest label: " + largestLabel)  //1.3.7
 
         val shiftedPointsRdd = parsedPointsRdd.map(lp => LabeledPoint(lp.label - smallestLabel, lp.features)) //1.4.1
-        println("(shifted data) the smallest label: " + shiftedPointsRdd.map(_.label).min()) //1.4.2
-        println("(shifted data) the largest label: " + shiftedPointsRdd.map(_.label).max())  //1.4.2
+        println("[1.4.2] (shifted data) the smallest label: " + shiftedPointsRdd.map(_.label).min()) //1.4.2
+        println("[1.4.2] (shifted data) the largest label: " + shiftedPointsRdd.map(_.label).max())  //1.4.2
 
         //1.5.1 | Training, validation and test sets
         val weights = Array(.8, .1, .1)
@@ -70,34 +74,30 @@ object MillionSongPipeline {
         val testDataCount  = testData.count()
         val sumCounts = trainDataCount + valDataCount + testDataCount
 
-        println("Number of elements in trainData: " + trainDataCount)
-        println("Number of elements in valData: " + valDataCount)
-        println("Number of elements in testData: " + testDataCount)
-        println("Sum of counts: " + sumCounts)
+        println("[1.5.3] Number of elements in trainData: " + trainDataCount)
+        println("[1.5.3] Number of elements in valData: " + valDataCount)
+        println("[1.5.3] Number of elements in testData: " + testDataCount)
+        println("[1.5.3] Sum of counts: " + sumCounts)
 
         val totalCountShifted = shiftedPointsRdd.count()
-        println("Total number of elements in shiftedPointsRdd: " + totalCountShifted)
-        println("Is the sum of counts equal to the count of shiftedPointsRdd? " + (sumCounts == totalCountShifted))
+        println("[1.5.3] Total number of elements in shiftedPointsRdd: " + totalCountShifted)
+        println("[1.5.3] Is the sum of counts equal to the count of shiftedPointsRdd? " + (sumCounts == totalCountShifted))
 
         // --------------------------------------------------------- //
         // ----------------< E X E R C I S E     2 >---------------- //
         // --------------------------------------------------------- //
 
         //2.1.1
-        val averageYear = trainData.map(_.label).mean()
-        println("Average (shifted) song year on the training set: " + averageYear)
+        averageYear = trainData.map(_.label).mean()
+        println("[2.1.1] Average (shifted) song year on the training set: " + averageYear)
 
-        val predsTrain = trainData.map(baseLineModel)
-        val predsVal   = valData.map(baseLineModel)
-        val predsTest  = testData.map(baseLineModel)
+        val predsNLabelsTrain = trainData.map(lp => (baseLineModel(lp), lp.label))
+        val predsNLabelsVal = valData.map(lp => (baseLineModel(lp), lp.label))
+        val predsNLabelsTest = testData.map(lp => (baseLineModel(lp), lp.label))
 
-        val predsNLabelsTrain = predsTrain.zip(trainData.map(_.label))
-        val predsNLabelsVal   = predsVal.zip(valData.map(_.label))
-        val predsNLabelsTest  = predsTest.zip(testData.map(_.label))
-
-        println("RMSE on training set: " + calcRmse(predsNLabelsTrain))
-        println("RMSE on validation set: " + calcRmse(predsNLabelsVal))
-        println("RMSE on test set: " + calcRmse(predsNLabelsTest))
+        println("[2.1.2] RMSE on training set: " + calcRmse(predsNLabelsTrain))
+        println("[2.1.2] RMSE on validation set: " + calcRmse(predsNLabelsVal))
+        println("[2.1.2] RMSE on test set: " + calcRmse(predsNLabelsTest))
 
         // --------------------------------------------------------- //
         // ----------------< E X E R C I S E     3 >---------------- //
@@ -107,14 +107,14 @@ object MillionSongPipeline {
         //val exampleN = 4
         //val exampleD = 3
         //val exampleData = sc.parallelize(trainData.take(exampleN)).map(lp => LabeledPoint(lp.label, Vectors.dense(lp.features.toArray.slice(0, exampleD))))
-        val exampleNumIters = 50
+        
+         exampleNumIters = 50
         val (exampleWeights, exampleErrorTrain) = lrgd(trainData, exampleNumIters)
-        println("alpha: " + 0.001 + "\nIterations: " + exampleNumIters + "\nTotalErrors(per iteration): " + exampleErrorTrain + "\nModel Parameters: " + exampleWeights)
-        println(exampleErrorTrain)
+        println("\n[3.3] alpha: " + 0.001 + "\n\nIterations: " + exampleNumIters + "\n\nTotalErrors(per iteration): " + exampleErrorTrain + "\n\nModel Parameters: " + exampleWeights)
         // 3.4
         val predsNLabelsVal_2 = valData.map(lp => getLabeledPrediction(exampleWeights, lp))
         val rmseVal = calcRmse(predsNLabelsVal_2)
-        println("RMSE on the validation set: " + rmseVal)
+        println("\n[3.4] RMSE on the validation set: " + rmseVal)
 
         //Note 0: Num of iterations are not responsible, because the error always increases towards the infinity, so the gradient
         //        descent does not converge!
@@ -142,15 +142,15 @@ object MillionSongPipeline {
         lrModel.evaluate(valDataDF).rootMeanSquaredError
 
         // 4.1.1
-        println("Coefficients: " + lrModel.coefficients + "\nIntercept: " + lrModel.intercept)
+        println("\n[4.1.1] Coefficients: " + lrModel.coefficients + "\nIntercept: " + lrModel.intercept)
 
         // 4.1.2
         val rmse = lrModel.evaluate(valDataDF).rootMeanSquaredError
-        println("RMSE on the validation set: " + rmse)
+        println("\n[4.1.2] RMSE on the validation set: " + rmse)
 
         // 4.1.3
         val valPredictions = lrModel.transform(valDataDF)
-        println("First 10 predictions:")
+        println("\n[4.1.3] First 10 predictions:")
         val valPredictionsFirst10 = valPredictions.select("prediction").take(10)
         valPredictionsFirst10.foreach(println)
 
@@ -171,8 +171,8 @@ object MillionSongPipeline {
         val bestModel = cvModel.bestModel.asInstanceOf[LinearRegressionModel]
         val rmseBestModel = cvModel.avgMetrics.min
 
-        println("RMSE of the best model: " + rmseBestModel) //4.2.1
-        println("Regularization parameter of the best model: " + bestModel.getRegParam) //4.2.2
+        println("\n[4.2.1] RMSE of the best model: " + rmseBestModel) //4.2.1
+        println("\n[4.2.2] Regularization parameter of the best model: " + bestModel.getRegParam) //4.2.2
 
         // --------------------------------------------------------- //
         // ----------------< E X E R C I S E     5 >---------------- //
@@ -219,8 +219,8 @@ object MillionSongPipeline {
             .setMetricName("rmse") // Specify the evaluation metric (RMSE)
         val rmseTest5 = evaluator.evaluate(predictionsDF)
 
-        println(s"RMSE on validation set: $rmseVal5")
-        println(s"RMSE on test set: $rmseTest5")
+        println(s"\n[5.4.1] RMSE on validation set: $rmseVal5")
+        println(s"\n[5.4.2] RMSE on test set: $rmseTest5")
 
         predictionsDF.select("label").show(50)
 
@@ -241,7 +241,7 @@ object MillionSongPipeline {
         val evaluator5 = new RegressionEvaluator()
         evaluator5.setMetricName("rmse")
         val rmseTestPipeline = evaluator5.evaluate(predictionsDF5)
-        println(rmseTestPipeline)
+        println("\n[5.5] RMSE test pipeline: " + rmseTestPipeline + "\n")
     }
 
     //1.3.1
@@ -283,7 +283,7 @@ object MillionSongPipeline {
     private def lrgd(trData: RDD[LabeledPoint], numIter: Int): (DenseVector[Double], List[Double]) = {
         val n = trData.count
         val d = trData.first.features.size
-        val alpha = 0.002
+        val alpha = 0.001
         val errorTrain = new ListBuffer[Double]
         var weights = new DenseVector(Array.fill[Double](d)(0.0))
         for (i <- 0 until numIter){
